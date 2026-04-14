@@ -1,0 +1,6 @@
+click
+docker
+flask
+dropbox
+requests
+PyYAML

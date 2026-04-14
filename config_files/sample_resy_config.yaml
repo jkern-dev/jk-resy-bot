@@ -1,0 +1,50 @@
+default_config:
+  # NOTE: ALL THESE KEYS ARE REQUIRED! DO NOT remove unless you know what you're doing.
+  username: your_resy_email_address@domain.com
+  password: "YourResyPassw0rd"
+  api_key: "your_api_key" # See README for how to find this value
+
+  preferred_reservation_time: "19:00" # Your ideal reservation time, specified in military time format
+  acceptable_delta_in_minutes: 60 # Sets the time window before and after your preferred time within which to snag a table
+  min_days_since_last_visit: 90 # Will only book a table if you haven't been to that restaurant in more than this many days
+  sleep_time_in_seconds: 5 # How long to wait between each API call to Resy. Defaults to 5 seconds if absent from config.
+
+  party_size: 2
+  only_refundable_reservations: True # Whether to book reservations that hold a deposit but allow cancelling for free up until some point. Defaults to True if absent from config
+  book_prepaid_reservations: False # Whether to book non-refundable, fully paid reservations. Defaults to False if absent from config.
+  book_last_minute_reservations: False # Whether to book same day reservations that may not be refundable. Defaults to False if absent from config.
+  ignore_recent_bookings: False # Whether or not to book a table at a restaurant within the min_days_since_last_visit window. Defaults to False if absent from config.
+
+  timezone: "America/New_York" # Your local timezone. Must be specified in standard format understandable by Python
+  weeks_to_process: 8 # How many weeks in the future to try for
+
+# You can configure all of the values set above in the default with unique values for each of the upcoming four weekends
+weekend_overrides:
+  this_weekend:
+    ignore: True # If set to True, will not try and book a table for this weekend.
+  next_weekend:
+  third_weekend:
+  fourth_weekend:
+    party_size: 4
+    only_refundable_reservations: False
+    # If you only want to go to specific restaurants out of your Hit List, you can specify them as a list here.
+    # Note that the name MUST match the name of the restaurant in Resy!
+    venues:
+      - "L’Antica Pizzeria da Michele - West Village"
+  fifth_weekend:
+  sixth_weekend:
+  seventh_weekend:
+  eighth_weekend:
+  ninth_weekend:
+  tenth_weekend:
+  eleventh_weekend:
+  twelfth_weekend:
+
+# You can also specify specific dates to book reservations for.
+specific_dates:
+  # If you want to book a specific date, you can specify it here.
+  # Note that the date MUST be in the format YYYY-MM-DD.
+  # You can specify overrides the same way as done for weekends.
+  # 2021-01-01:
+  #   venues:
+  #     - "L’Antica Pizzeria da Michele - West Village"

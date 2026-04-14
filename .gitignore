@@ -1,0 +1,32 @@
+*.class
+*.iml
+*.log
+*.xml
+
+# sbt specific
+.bsp/
+.cache
+.history
+.lib/
+dist/*
+lib_managed/
+src_managed/
+target/
+project/boot/
+project/plugins/project/
+project/target/
+
+# Scala-IDE / IOS specific
+.DS_Store
+.idea
+.scala_dependencies
+.worksheet
+
+config_files/resy_config.yaml
+config_files/startup_config.yaml
+config_files/dropbox_secrets.yaml
+config_files/notion_secrets.yaml
+tags
+.vscode/
+
+__pycache__
