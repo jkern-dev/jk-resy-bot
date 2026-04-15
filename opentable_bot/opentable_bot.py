@@ -9,7 +9,7 @@ import uuid
 import requests
 from requests.exceptions import RetryError
 from curl_cffi import requests as cffi_requests
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from pathlib import Path
 import click
 
@@ -318,10 +318,10 @@ class OpenTableBot:
 
     def get_availability(
         self, restaurant_id: int, date: str, time_str: str, party_size: int
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], str]:
         """
         Get available time slots for a restaurant on a given date via GraphQL.
-        Returns a list of available slot dicts with timeOffsetMinutes and slotHash.
+        Returns a tuple of (available slot list, attributionToken).
         """
         payload = {
             "operationName": "RestaurantsAvailability",
@@ -387,22 +387,23 @@ class OpenTableBot:
                     f"Failed to get availability for restaurant {restaurant_id}. "
                     f"Error: {type(err).__name__}: {err}"
                 )
-            return []
+            return [], ""
 
         data = response.json()
 
         if "errors" in data:
             logging.error(f"GraphQL errors for restaurant {restaurant_id}: {data['errors']}")
-            return []
+            return [], ""
 
         availability_list = data.get("data", {}).get("availability", [])
         if not availability_list:
-            return []
+            return [], ""
 
         restaurant_avail = availability_list[0]
+        attribution_token = restaurant_avail.get("restaurantAvailabilityToken", "")
         availability_days = restaurant_avail.get("availabilityDays", [])
         if not availability_days:
-            return []
+            return [], ""
 
         # Get slots from the first (and usually only) day
         day_data = availability_days[0]
@@ -410,7 +411,7 @@ class OpenTableBot:
 
         # Filter to only available slots
         available_slots = [s for s in slots if s.get("isAvailable", False)]
-        return available_slots
+        return available_slots, attribution_token
 
     def lock_slot(
         self,
@@ -492,6 +493,7 @@ class OpenTableBot:
         slot_hash: str,
         slot_lock_id: int,
         slot_availability_token: str,
+        attribution_token: str = "",
         dining_area_id: int = 1,
     ) -> Optional[Dict[str, Any]]:
         """
@@ -501,7 +503,7 @@ class OpenTableBot:
         config = self.weekend_config
         payload = {
             "additionalServiceFees": [],
-            "attributionToken": "",
+            "attributionToken": attribution_token,
             "correlationId": str(uuid.uuid4()),
             "country": "US",
             "diningAreaId": dining_area_id,
@@ -524,7 +526,7 @@ class OpenTableBot:
             "slotLockId": slot_lock_id,
             "tipAmount": 0,
             "tipPercent": 0,
-            "phoneNumber": config.get("phone", "").lstrip("+1"),
+            "phoneNumber": config.get("phone", "").removeprefix("+1"),
             "phoneNumberCountryId": "US",
             "confirmPoints": False,
             "optInEmailRestaurant": False,
@@ -551,7 +553,12 @@ class OpenTableBot:
                 timeout=15,
                 impersonate="chrome",
             )
-            response.raise_for_status()
+            if response.status_code >= 400:
+                logging.error(
+                    f"Booking request failed with status {response.status_code}. "
+                    f"Response body: {response.text}"
+                )
+                response.raise_for_status()
             data = response.json()
 
             if data.get("success"):
@@ -602,6 +609,7 @@ class OpenTableBot:
         party_size: int,
         slots: List[Dict[str, Any]],
         acceptable_delta_in_minutes: int,
+        attribution_token: str = "",
     ) -> bool:
         """
         Find the best slot and book it. Returns True if reservation is made.
@@ -650,6 +658,7 @@ class OpenTableBot:
             slot_hash=slot_hash,
             slot_lock_id=lock_id,
             slot_availability_token=slot_token,
+            attribution_token=attribution_token,
         )
         if result:
             logging.info(
@@ -708,7 +717,7 @@ def grab_table_for_day(
 
         logging.info(f"Checking availability at {rname} for {date_str}")
 
-        slots = bot.get_availability(
+        slots, attribution_token = bot.get_availability(
             restaurant_id=rid,
             date=date_str,
             time_str=time_str,
@@ -728,6 +737,7 @@ def grab_table_for_day(
             party_size=party_size,
             slots=slots,
             acceptable_delta_in_minutes=acceptable_delta_in_minutes,
+            attribution_token=attribution_token,
         )
         if reserved:
             logging.info(f"Booked table for {date_str} at {rname}!")
