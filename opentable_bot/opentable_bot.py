@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import time
 import logging
+import json
 import yaml
 import uuid
 import requests
@@ -114,6 +115,33 @@ class OpenTableBot:
         self.api = OpenTableApiRequestWrapper()
         self._wishlist_cache: List[Dict[str, Any]] = []
         self._wishlist_cache_time: Optional[datetime] = None
+        self._bookings_file = Path.cwd() / "config_files" / "opentable_bookings.json"
+        self._booked_restaurants: Dict[int, str] = self._load_bookings()
+
+    def _load_bookings(self) -> Dict[int, str]:
+        """Load booking history from JSON file. Returns {restaurant_id: date_str}."""
+        try:
+            data = json.loads(self._bookings_file.read_text())
+            return {int(k): v for k, v in data.items()}
+        except (FileNotFoundError, json.JSONDecodeError):
+            return {}
+
+    def _save_booking(self, restaurant_id: int, date_str: str):
+        """Record a successful booking."""
+        self._booked_restaurants[restaurant_id] = date_str
+        self._bookings_file.write_text(json.dumps(self._booked_restaurants, indent=2))
+        logging.info(f"Recorded booking: restaurant {restaurant_id} on {date_str}")
+
+    def was_recently_booked(self, restaurant_id: int) -> bool:
+        """Check if a restaurant was booked within min_days_since_last_visit."""
+        last_date_str = self._booked_restaurants.get(restaurant_id)
+        if not last_date_str:
+            return False
+        min_days = self.weekend_config.get("min_days_since_last_visit", 90)
+        last_date = datetime.strptime(last_date_str, "%Y-%m-%d")
+        if datetime.now() - last_date < timedelta(days=min_days):
+            return True
+        return False
 
     def _load_cookies_from_string(self, full_cookie_str: str):
         """Parse a cookie string into full_cookies and auth_cookies."""
@@ -738,6 +766,7 @@ class OpenTableBot:
                 f"on {actual_time.strftime('%Y-%m-%d %H:%M')}! "
                 f"Confirmation: {result.get('confirmationNumber')}"
             )
+            self._save_booking(restaurant_id, actual_time.strftime("%Y-%m-%d"))
             return True
 
         logging.error(
@@ -783,6 +812,10 @@ def grab_table_for_day(
     for i, restaurant in enumerate(restaurants_to_check):
         rid = restaurant["id"]
         rname = restaurant["name"]
+
+        if bot.was_recently_booked(rid):
+            logging.info(f"Skipping {rname} — booked within min_days_since_last_visit")
+            continue
 
         if i > 0:
             time.sleep(2)
