@@ -1,10 +1,11 @@
 default_config:
-  # Authentication - use bearer_token OR username/password
-  bearer_token: "your_bearer_token"  # Extract 'atk' value from authCke cookie in browser dev tools
-  # Cookie file for authenticated requests (needed for wishlist/favorites).
-  # Paste the full cookie header from browser dev tools into this file.
+  # Authentication — set password to enable auto cookie refresh via Playwright.
+  # When password is set, bearer_token, cookie_file, and csrf_token are auto-managed.
+  password: "your_opentable_password"
+  # Fallback if auto-login fails:
+  bearer_token: "your_bearer_token"
   cookie_file: "opentable_cookie.txt"
-  csrf_token: "your_csrf_token"  # x-csrf-token from browser dev tools
+  csrf_token: "your_csrf_token"
 
   # Personal info (required for completing reservations)
   first_name: "Josh"

@@ -25,6 +25,7 @@ project/target/
 config_files/resy_config.yaml
 config_files/opentable_config.yaml
 config_files/opentable_cookie.txt
+config_files/opentable_bookings.json
 config_files/startup_config.yaml
 config_files/dropbox_secrets.yaml
 config_files/notion_secrets.yaml
