@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenTable Bot Logs</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #1a1b26;
+            color: #a9b1d6;
+            font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', Menlo, Monaco, Consolas, monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        #header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 10;
+            background: #16161e;
+            border-bottom: 1px solid #292e42;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        #header h1 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #c0caf5;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #f7768e;
+            transition: background 0.3s;
+        }
+
+        .status-dot.connected {
+            background: #9ece6a;
+        }
+
+        #line-count {
+            margin-left: auto;
+            color: #565f89;
+            font-size: 12px;
+        }
+
+        #log-container {
+            padding: 52px 20px 20px;
+            overflow-y: auto;
+            height: 100vh;
+        }
+
+        .log-line {
+            padding: 2px 8px;
+            border-left: 3px solid transparent;
+            border-radius: 2px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .log-line:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .log-line .timestamp {
+            color: #3b3f5c;
+            margin-right: 6px;
+            transition: color 0.15s;
+        }
+
+        .log-line:hover .timestamp {
+            color: #565f89;
+        }
+
+        .log-line .level-badge {
+            font-weight: 700;
+            margin-right: 8px;
+            display: inline-block;
+            min-width: 60px;
+        }
+
+        /* Level colors */
+        .log-line.level-debug { color: #3b3f5c; }
+        .log-line.level-debug .level-badge { color: #3b3f5c; }
+
+        .log-line.level-info { color: #a9b1d6; }
+        .log-line.level-info .level-badge { color: #7aa2f7; }
+
+        .log-line.level-warning { color: #e0af68; }
+        .log-line.level-warning .level-badge { color: #e0af68; }
+
+        .log-line.level-error { color: #f7768e; }
+        .log-line.level-error .level-badge { color: #f7768e; }
+
+        /* Success highlight */
+        .log-line.success {
+            color: #9ece6a;
+            font-weight: 700;
+            font-size: 14px;
+            border-left-color: #9ece6a;
+            background: rgba(158, 206, 106, 0.08);
+            padding: 4px 8px;
+            animation: pulse-green 1s ease-out;
+        }
+
+        /* Critical error highlight */
+        .log-line.critical-error {
+            border-left-color: #f7768e;
+            background: rgba(247, 118, 142, 0.08);
+        }
+
+        @keyframes pulse-green {
+            0% { background: rgba(158, 206, 106, 0.25); }
+            100% { background: rgba(158, 206, 106, 0.08); }
+        }
+
+        /* Jump to latest button */
+        #jump-to-latest {
+            display: none;
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 10;
+            background: #7aa2f7;
+            color: #1a1b26;
+            border: none;
+            border-radius: 20px;
+            padding: 8px 16px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+            transition: opacity 0.2s;
+        }
+
+        #jump-to-latest:hover {
+            opacity: 0.85;
+        }
+
+        .log-line.raw {
+            color: #565f89;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="header">
+        <div class="status-dot" id="status-dot"></div>
+        <h1>OpenTable Bot Logs</h1>
+        <span id="line-count">0 lines</span>
+    </div>
+    <div id="log-container"></div>
+    <button id="jump-to-latest">&#8595; Jump to latest</button>
+
+    <script>
+        const LOG_REGEX = /^(\[[^\]]+\])\[(\w+)\]\s*(.*)$/;
+        const SUCCESS_REGEX = /Booked table|Found a table|^Success$|Reservation confirmed/i;
+        const CRITICAL_ERROR_REGEX = /Booking failed|Unable to cancel|Lock failed/i;
+
+        const container = document.getElementById('log-container');
+        const statusDot = document.getElementById('status-dot');
+        const lineCountEl = document.getElementById('line-count');
+        const jumpBtn = document.getElementById('jump-to-latest');
+        let lineCount = 0;
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function isNearBottom() {
+            return (container.scrollHeight - container.scrollTop - container.clientHeight) < 80;
+        }
+
+        function scrollToBottom() {
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateJumpButton() {
+            jumpBtn.style.display = isNearBottom() ? 'none' : 'block';
+        }
+
+        container.addEventListener('scroll', updateJumpButton);
+        jumpBtn.addEventListener('click', () => {
+            scrollToBottom();
+            jumpBtn.style.display = 'none';
+        });
+
+        function appendLogLine(text) {
+            const wasNearBottom = isNearBottom();
+            const line = document.createElement('div');
+            const match = text.match(LOG_REGEX);
+
+            if (match) {
+                const [, timestamp, level, message] = match;
+                const levelLower = level.toLowerCase();
+                line.className = 'log-line level-' + levelLower;
+
+                const isSuccess = SUCCESS_REGEX.test(message);
+                const isCritical = CRITICAL_ERROR_REGEX.test(message);
+
+                if (isSuccess) line.classList.add('success');
+                if (isCritical) line.classList.add('critical-error');
+
+                line.innerHTML =
+                    '<span class="timestamp">' + escapeHtml(timestamp) + '</span>' +
+                    '<span class="level-badge">[' + escapeHtml(level) + ']</span>' +
+                    (isSuccess ? '&#10003; ' : '') +
+                    escapeHtml(message);
+            } else {
+                line.className = 'log-line raw';
+                line.textContent = text;
+            }
+
+            container.appendChild(line);
+            lineCount++;
+            lineCountEl.textContent = lineCount + ' line' + (lineCount === 1 ? '' : 's');
+
+            if (wasNearBottom) scrollToBottom();
+            updateJumpButton();
+        }
+
+        // SSE connection
+        const source = new EventSource('/logs');
+
+        source.onmessage = (event) => {
+            appendLogLine(event.data);
+        };
+
+        source.onopen = () => {
+            statusDot.classList.add('connected');
+        };
+
+        source.onerror = () => {
+            statusDot.classList.remove('connected');
+        };
+    </script>
+</body>
+
+</html>

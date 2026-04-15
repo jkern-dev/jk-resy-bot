@@ -3,4 +3,5 @@ docker
 flask
 dropbox
 requests
+curl_cffi
 PyYAML

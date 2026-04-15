@@ -1,0 +1,54 @@
+default_config:
+  # Authentication - use bearer_token OR username/password
+  bearer_token: "your_bearer_token"  # Extract 'atk' value from authCke cookie in browser dev tools
+  # Cookie file for authenticated requests (needed for wishlist/favorites).
+  # Paste the full cookie header from browser dev tools into this file.
+  cookie_file: "opentable_cookie.txt"
+  csrf_token: "your_csrf_token"  # x-csrf-token from browser dev tools
+
+  # Personal info (required for completing reservations)
+  first_name: "Josh"
+  last_name: "K"
+  email: "your_email@domain.com"
+  phone: "+12125551234"
+
+  # Restaurant list (OPTIONAL) - if omitted, the bot uses your OpenTable Favorites/Wishlist.
+  # To use a static list instead, uncomment and add restaurant IDs from the browser Network tab.
+  # restaurants:
+  #   - id: 1403569
+  #     name: "La Grande Boucherie NYC"
+
+  preferred_reservation_time: "19:00"  # Military time format
+  acceptable_delta_in_minutes: 60  # Window before/after preferred time
+  min_days_since_last_visit: 90  # Skip restaurants visited within this many days
+  sleep_time_in_seconds: 5  # Delay between polling cycles
+  party_size: 2
+  timezone: "America/New_York"
+  weeks_to_process: 8
+
+weekend_overrides:
+  this_weekend:
+    ignore: True
+  next_weekend:
+  third_weekend:
+  fourth_weekend:
+    party_size: 4
+    # You can still override restaurants per-weekend
+    restaurants:
+      - id: 123456
+        name: "Carbone"
+  fifth_weekend:
+  sixth_weekend:
+  seventh_weekend:
+  eighth_weekend:
+  ninth_weekend:
+  tenth_weekend:
+  eleventh_weekend:
+  twelfth_weekend:
+
+# Specific dates to book reservations for (format: YYYY-MM-DD)
+specific_dates:
+  # 2025-01-01:
+  #   restaurants:
+  #     - id: 123456
+  #       name: "Carbone"

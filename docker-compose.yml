@@ -17,3 +17,22 @@ services:
     ports:
       - 8995:8995
     entrypoint: [ "python", "web_app.py", "--port", "8995", "--container-name", "resy_bot" ]
+  opentable-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.opentable
+    container_name: opentable_bot
+    restart: unless-stopped
+    volumes:
+      - ./config_files:/app/config_files:rw
+  opentable-web-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.opentable
+    container_name: opentable_web_app
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - 8996:8996
+    entrypoint: [ "python", "web_app.py", "--port", "8996", "--container-name", "opentable_bot" ]
