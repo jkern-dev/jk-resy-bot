@@ -4,4 +4,5 @@ flask
 dropbox
 requests
 curl_cffi
+playwright
 PyYAML

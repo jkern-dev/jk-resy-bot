@@ -15,6 +15,7 @@ import click
 
 from dropbox_client import DropboxClient
 from opentable_api_wrapper import OpenTableApiRequestWrapper
+from cookie_refresh import refresh_cookies
 
 GQL_URL = "https://www.opentable.com/dapi/fe/gql"
 
@@ -114,45 +115,116 @@ class OpenTableBot:
         self._wishlist_cache: List[Dict[str, Any]] = []
         self._wishlist_cache_time: Optional[datetime] = None
 
-    def login(self) -> bool:
-        """
-        Sets up headers with the bearer token from config.
-        The token is extracted from the authCke cookie in browser dev tools.
-        """
-        bearer_token = self.weekend_config.get("bearer_token")
+    def _load_cookies_from_string(self, full_cookie_str: str):
+        """Parse a cookie string into full_cookies and auth_cookies."""
+        self.full_cookies = full_cookie_str
+        auth_cookie_prefixes = (
+            "authCke", "OT-SessionId", "otuvid", "ha_userSession",
+        )
+        self.auth_cookies = "; ".join(
+            part.strip() for part in full_cookie_str.split(";")
+            if any(part.strip().startswith(p) for p in auth_cookie_prefixes)
+        )
 
-        if bearer_token:
+    def _refresh_cookies_via_playwright(self) -> bool:
+        """Attempt automated cookie refresh. Returns True on success."""
+        config = self.weekend_config
+        email = config.get("email")
+        password = config.get("password")
+        if not email or not password:
+            logging.info(
+                "No email/password in config — skipping automated cookie refresh. "
+                "Add 'password' to config to enable auto-refresh."
+            )
+            return False
+
+        cookie_file = config.get("cookie_file", "opentable_cookie.txt")
+        cookie_path = Path.cwd() / "config_files" / cookie_file
+
+        try:
+            full_cookie_str, csrf_token, bearer_token = refresh_cookies(
+                email=email,
+                password=password,
+                cookie_file_path=cookie_path,
+            )
+            self._load_cookies_from_string(full_cookie_str)
             self.headers = {
                 **HEADERS,
                 "Authorization": f"Bearer {bearer_token}",
             }
-            self.full_cookies = ""
-            self.auth_cookies = ""
-            cookie_file = self.weekend_config.get("cookie_file")
-            if cookie_file:
-                cookie_path = Path.cwd() / "config_files" / cookie_file
-                try:
-                    self.full_cookies = cookie_path.read_text().strip()
-                    # Auth-only cookies for endpoints that choke on Akamai cookies
-                    auth_cookie_prefixes = (
-                        "authCke", "OT-SessionId", "otuvid", "ha_userSession",
-                    )
-                    self.auth_cookies = "; ".join(
-                        part.strip() for part in self.full_cookies.split(";")
-                        if any(part.strip().startswith(p) for p in auth_cookie_prefixes)
-                    )
-                    logging.info(f"Cookies loaded from {cookie_file}")
-                except FileNotFoundError:
-                    logging.warning(
-                        f"Cookie file {cookie_path} not found. "
-                        "API calls may fail without cookies."
-                    )
-            logging.info("Bearer token set. Will validate on first API call.")
+            if csrf_token:
+                self._auto_csrf_token = csrf_token
+            self._last_cookie_refresh = datetime.now()
+            logging.info("Automated cookie refresh successful.")
+            return True
+        except Exception as err:
+            logging.warning(f"Automated cookie refresh failed: {err}")
+            return False
+
+    def _load_cookies_from_file(self) -> bool:
+        """Load cookies from the manual cookie file. Returns True on success."""
+        cookie_file = self.weekend_config.get("cookie_file")
+        if not cookie_file:
+            return False
+        cookie_path = Path.cwd() / "config_files" / cookie_file
+        try:
+            full_cookie_str = cookie_path.read_text().strip()
+            if not full_cookie_str:
+                return False
+            self._load_cookies_from_string(full_cookie_str)
+            logging.info(f"Cookies loaded from {cookie_file}")
+            return True
+        except FileNotFoundError:
+            logging.warning(f"Cookie file {cookie_path} not found.")
+            return False
+
+    def login(self) -> bool:
+        """
+        Sets up auth headers and cookies.
+        Tries automated Playwright refresh first, falls back to manual cookie file.
+        """
+        self.full_cookies = ""
+        self.auth_cookies = ""
+        self._auto_csrf_token = ""
+        self._last_cookie_refresh: Optional[datetime] = None
+
+        # Try automated cookie refresh first
+        if self._refresh_cookies_via_playwright():
             return True
 
-        logging.error("No bearer_token provided in config. "
-                      "Extract the 'atk' value from the authCke cookie in browser dev tools.")
-        return False
+        # Fall back to manual bearer token + cookie file
+        bearer_token = self.weekend_config.get("bearer_token")
+        if not bearer_token:
+            logging.error(
+                "No bearer_token in config and automated login failed. "
+                "Either add 'password' for auto-login or set 'bearer_token' manually."
+            )
+            return False
+
+        self.headers = {
+            **HEADERS,
+            "Authorization": f"Bearer {bearer_token}",
+        }
+        self._load_cookies_from_file()
+        logging.info("Bearer token set from config. Will validate on first API call.")
+        return True
+
+    def maybe_refresh_cookies(self):
+        """Refresh cookies if they're older than 30 minutes."""
+        if (
+            self._last_cookie_refresh
+            and self._last_cookie_refresh + timedelta(minutes=30) > datetime.now()
+        ):
+            return
+        logging.info("Cookies are stale (>30 min). Attempting refresh...")
+        if not self._refresh_cookies_via_playwright():
+            # Try reloading from file (user may have updated it manually)
+            self._load_cookies_from_file()
+
+    @property
+    def csrf_token(self) -> str:
+        """Return auto-captured CSRF token, or fall back to config value."""
+        return self._auto_csrf_token or self.weekend_config.get("csrf_token", "")
 
     def get_wishlist_restaurant_ids(self) -> List[Dict[str, Any]]:
         """
@@ -183,7 +255,7 @@ class OpenTableBot:
             "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Cookie": self.auth_cookies,
-            "x-csrf-token": self.weekend_config.get("csrf_token", ""),
+            "x-csrf-token": self.csrf_token,
             "ot-page-type": "user-favorites",
             "ot-page-group": "user",
             "sec-fetch-dest": "empty",
@@ -356,7 +428,7 @@ class OpenTableBot:
             "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Cookie": self.full_cookies,
-            "x-csrf-token": self.weekend_config.get("csrf_token", ""),
+            "x-csrf-token": self.csrf_token,
             "ot-page-group": "rest-profile",
             "ot-page-type": "restprofilepage",
             "sec-fetch-dest": "empty",
@@ -451,7 +523,7 @@ class OpenTableBot:
             "Accept": "*/*",
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Cookie": self.full_cookies,
-            "x-csrf-token": self.weekend_config.get("csrf_token", ""),
+            "x-csrf-token": self.csrf_token,
             "ot-page-group": "booking",
             "ot-page-type": "network_details",
             "sec-fetch-dest": "empty",
@@ -537,7 +609,7 @@ class OpenTableBot:
             "Accept-Encoding": "gzip, deflate, br, zstd",
             "Accept-Language": "en-US, en, *",
             "Cookie": self.full_cookies,
-            "x-csrf-token": config.get("csrf_token", ""),
+            "x-csrf-token": self.csrf_token,
             "sec-fetch-dest": "empty",
             "sec-fetch-mode": "cors",
             "sec-fetch-site": "same-origin",
@@ -899,6 +971,9 @@ def main(
     )
 
     while True:
+        # Refresh cookies if stale
+        bot.maybe_refresh_cookies()
+
         # Process any specific dates
         specific_dates_configs: Dict[datetime.date, Any] = (
             bot.config_dict.get("specific_dates", {}) or {}
