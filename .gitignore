@@ -33,3 +33,5 @@ tags
 .vscode/
 
 __pycache__
+
+DEPLOY.md
